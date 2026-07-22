@@ -1,0 +1,16 @@
+{
+  "name": "tmj-anketa-server",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Real REST + SQLite backend for the TMJ questionnaire app",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js"
+  },
+  "dependencies": {
+    "cookie-parser": "^1.4.6",
+    "cors": "^2.8.5",
+    "express": "^4.19.2"
+  }
+}
