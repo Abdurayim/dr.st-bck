@@ -109,17 +109,44 @@ function seed() {
     phone: '+998 90 000 00 00', clinic: 'Demo Dental Clinic',
     specialization: 'orthodontist', city: 'Tashkent', status: 'active', createdAt: now,
   });
+  // 'suspended' is the only state that hides a doctor from patients — doctors are
+  // never gated on admin approval, so this row demos suspend/reactivate instead.
   insertUser.run({
-    id: 'u_pending', role: 'doctor', email: 'pending@tmj.local',
-    passwordHash: hashPassword('doctor1234'), fullName: 'Dr. Pending',
-    phone: '+998 90 111 11 11', clinic: 'Pending Clinic',
-    specialization: 'neurologist', city: 'Samarkand', status: 'pending', createdAt: now,
+    id: 'u_suspended', role: 'doctor', email: 'suspended@tmj.local',
+    passwordHash: hashPassword('doctor1234'), fullName: 'Dr. Suspended',
+    phone: '+998 90 111 11 11', clinic: 'Suspended Clinic',
+    specialization: 'neurologist', city: 'Samarkand', status: 'suspended', createdAt: now,
   });
 
   insertSub.run({ id: newId('sub'), doctorId: 'u_doctor', plan: 'basic', status: 'active', startedAt: now, renewsAt: now + 30 * 86400e3 });
-  insertSub.run({ id: newId('sub'), doctorId: 'u_pending', plan: 'basic', status: 'pending', startedAt: null, renewsAt: null });
+  insertSub.run({ id: newId('sub'), doctorId: 'u_suspended', plan: 'basic', status: 'suspended', startedAt: now, renewsAt: null });
 
-  console.log('[db] seeded demo accounts (admin@tmj.local / doctor@tmj.local / pending@tmj.local)');
+  console.log('[db] seeded demo accounts (admin@tmj.local / doctor@tmj.local / suspended@tmj.local)');
+}
+
+/* ---------- migrations ---------- */
+
+// Doctors used to sign up as 'pending' and stay invisible to patients until an
+// admin approved them. That gate is gone: a doctor is live the moment they
+// register. Release any doctor still stuck in the old state (idempotent — nothing
+// writes 'pending' anymore, so this is a no-op on every boot after the first).
+function releasePendingDoctors() {
+  const stuck = db.prepare(
+    "SELECT id FROM users WHERE role = 'doctor' AND (status IS NULL OR status = 'pending')",
+  ).all();
+  if (stuck.length === 0) return;
+
+  const now = Date.now();
+  const activateUser = db.prepare("UPDATE users SET status = 'active' WHERE id = ?");
+  const activateSub = db.prepare(
+    "UPDATE subscriptions SET status = 'active', startedAt = COALESCE(startedAt, ?), renewsAt = ? WHERE doctorId = ? AND (status IS NULL OR status = 'pending')",
+  );
+  for (const { id } of stuck) {
+    activateUser.run(id);
+    activateSub.run(now, now + 30 * 86400e3, id);
+  }
+  console.log(`[db] activated ${stuck.length} doctor(s) left over from the old approval flow`);
 }
 
 seed();
+releasePendingDoctors();

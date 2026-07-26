@@ -25,11 +25,22 @@ The frontend talks to the API because `.env.local` has `VITE_USE_MOCK=0` and
 
 ## Seeded demo accounts (created on first run only)
 
-| Role   | Email             | Password     |
-|--------|-------------------|--------------|
-| admin  | admin@tmj.local   | admin1234    |
-| doctor | doctor@tmj.local  | doctor1234   |
-| doctor | pending@tmj.local | doctor1234   | (status: pending)
+| Role   | Email               | Password   | Notes              |
+|--------|---------------------|------------|--------------------|
+| admin  | admin@tmj.local     | admin1234  |                    |
+| doctor | doctor@tmj.local    | doctor1234 |                    |
+| doctor | suspended@tmj.local | doctor1234 | status: `suspended` |
+
+## Doctor visibility
+
+Doctor registration needs **no admin approval**. `POST /auth/signup/doctor` creates the
+account with `status: 'active'` and an active subscription, so the doctor shows up in the
+public `GET /doctors` list — the one patients pick from — immediately after signing up.
+
+An admin can only `suspend` a doctor (and lift it again) via `PATCH /admin/doctors/:id`;
+`suspended` is the sole status that hides a doctor from patients. The old `pending` status
+is rejected, and any doctor left on `pending` by an earlier version is migrated to `active`
+on startup.
 
 ## Data model
 

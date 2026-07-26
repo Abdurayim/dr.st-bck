@@ -184,7 +184,8 @@ router.post('/auth/signup/doctor', h((req, res) => {
     INSERT INTO subscriptions (id, doctorId, plan, status, startedAt, renewsAt)
     VALUES (?, ?, 'basic', 'active', ?, ?)
   `).run(newId('sub'), user.id, now, now + 30 * 86400e3);
-  // doctors are active immediately and logged in right away
+  // No admin approval step: the doctor is created 'active', so they are listed at
+  // GET /doctors for patients from this moment on, and they are signed in right away.
   setSession(res, user.id, user.role);
   res.json(sanitizeUser(user));
 }));
@@ -312,9 +313,16 @@ router.get('/admin/doctors', h((req, res) => {
   res.json({ ...out, items: out.items.map(sanitizeUser) });
 }));
 
+// Admins can suspend a doctor and lift the suspension — they cannot gate a new
+// registration, so 'pending' is no longer an accepted status.
+const DOCTOR_STATUSES = ['active', 'suspended'];
+
 router.patch('/admin/doctors/:id', h((req, res) => {
   requireUser(req, ['admin']);
   const status = req.body?.status;
+  if (!DOCTOR_STATUSES.includes(status)) {
+    throw new HttpError(400, 'invalidStatus', 'invalid_status', { allowed: DOCTOR_STATUSES });
+  }
   const doctor = db.prepare("SELECT * FROM users WHERE id = ? AND role = 'doctor'").get(req.params.id);
   if (!doctor) throw new HttpError(404, 'notFound', 'not_found');
   db.prepare('UPDATE users SET status = ? WHERE id = ?').run(status, doctor.id);
@@ -325,10 +333,8 @@ router.patch('/admin/doctors/:id', h((req, res) => {
     if (status === 'active') {
       db.prepare('UPDATE subscriptions SET status = ?, startedAt = ?, renewsAt = ? WHERE id = ?')
         .run('active', sub.startedAt || Date.now(), Date.now() + 30 * 86400e3, sub.id);
-    } else if (status === 'suspended') {
+    } else {
       db.prepare('UPDATE subscriptions SET status = ? WHERE id = ?').run('suspended', sub.id);
-    } else if (status === 'pending') {
-      db.prepare('UPDATE subscriptions SET status = ? WHERE id = ?').run('pending', sub.id);
     }
   }
   res.json(sanitizeUser(doctor));
