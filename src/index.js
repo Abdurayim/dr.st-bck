@@ -18,11 +18,25 @@ const COOKIE_MAX_AGE_DOCTOR = 400 * DAY;
 const cookieMaxAge = (role) => (role === 'doctor' ? COOKIE_MAX_AGE_DOCTOR : COOKIE_MAX_AGE);
 
 const app = express();
+// behind nginx/Caddy on the VPS, so trust the first proxy hop for req.secure —
+// otherwise every request looks like plain http and the session cookie below
+// never gets the Secure flag it needs
+app.set('trust proxy', 1);
 // medical records embed base64 photos + pain-diagram data, so the default
 // 100kb body limit is far too small — allow generous payloads
 app.use(express.json({ limit: '25mb' }));
 app.use(cookieParser());
-app.use(cors({ origin: true, credentials: true })); // reflects request origin, allows cookies
+
+// The web app is deployed separately (GitHub Pages) from this API, so browsers
+// treat every call as cross-origin. Set CORS_ORIGIN to the site's origin in
+// production — reflecting whatever origin asks lets any page on the internet
+// make credentialed calls with the user's session.
+const allowedOrigins = (process.env.CORS_ORIGIN || '')
+  .split(',').map((s) => s.trim()).filter(Boolean);
+app.use(cors({
+  origin: allowedOrigins.length ? allowedOrigins : true, // true = reflect (dev only)
+  credentials: true,
+}));
 
 /* ---------- helpers ---------- */
 
@@ -71,35 +85,41 @@ function requireUser(req, roles) {
   return u;
 }
 
-function setSession(res, userId, role) {
-  const token = newToken();
-  db.prepare('INSERT INTO sessions (token, userId, createdAt) VALUES (?, ?, ?)').run(token, userId, Date.now());
-  res.cookie(SESSION_COOKIE, token, {
+// The deployed site and this API are on different sites, so the session cookie
+// only rides along if it is SameSite=None — which browsers in turn only accept
+// together with Secure, i.e. over https. Local dev is same-site plain http,
+// where None+Secure would be dropped instead. Decide per request rather than
+// hardcoding either one: on http, keep the stricter lax cookie.
+function cookieOptions(req, role) {
+  const https = req.secure;
+  return {
     httpOnly: true,
-    sameSite: 'lax',
-    secure: false, // localhost over http
+    sameSite: https ? 'none' : 'lax',
+    secure: https,
     maxAge: cookieMaxAge(role),
     path: '/',
-  });
+  };
+}
+
+function setSession(req, res, userId, role) {
+  const token = newToken();
+  db.prepare('INSERT INTO sessions (token, userId, createdAt) VALUES (?, ?, ?)').run(token, userId, Date.now());
+  res.cookie(SESSION_COOKIE, token, cookieOptions(req, role));
 }
 
 // re-issue the existing session cookie with a fresh max-age (sliding expiration)
 function refreshSession(req, res, role) {
   const token = req.cookies?.[SESSION_COOKIE];
   if (!token) return;
-  res.cookie(SESSION_COOKIE, token, {
-    httpOnly: true,
-    sameSite: 'lax',
-    secure: false,
-    maxAge: cookieMaxAge(role),
-    path: '/',
-  });
+  res.cookie(SESSION_COOKIE, token, cookieOptions(req, role));
 }
 
 function clearSession(req, res) {
   const token = req.cookies?.[SESSION_COOKIE];
   if (token) db.prepare('DELETE FROM sessions WHERE token = ?').run(token);
-  res.clearCookie(SESSION_COOKIE, { path: '/' });
+  // attributes must match the ones the cookie was set with, or it is not cleared
+  const { maxAge, ...attrs } = cookieOptions(req, null);
+  res.clearCookie(SESSION_COOKIE, attrs);
 }
 
 // wrap async handlers so thrown HttpErrors become JSON responses
@@ -127,7 +147,7 @@ router.post('/auth/login', h((req, res) => {
   if (!user || !verifyPassword(password, user.passwordHash)) {
     throw new HttpError(401, 'invalidCredentials', 'invalid_credentials');
   }
-  setSession(res, user.id, user.role);
+  setSession(req, res, user.id, user.role);
   res.json(sanitizeUser(user));
 }));
 
@@ -159,7 +179,7 @@ router.post('/auth/signup/client', h((req, res) => {
     INSERT INTO users (id, role, email, passwordHash, fullName, phone, clinic, specialization, city, status, createdAt)
     VALUES (@id, @role, @email, @passwordHash, @fullName, @phone, @clinic, @specialization, @city, @status, @createdAt)
   `).run(user);
-  setSession(res, user.id, user.role);
+  setSession(req, res, user.id, user.role);
   res.json(sanitizeUser(user));
 }));
 
@@ -186,7 +206,7 @@ router.post('/auth/signup/doctor', h((req, res) => {
   `).run(newId('sub'), user.id, now, now + 30 * 86400e3);
   // No admin approval step: the doctor is created 'active', so they are listed at
   // GET /doctors for patients from this moment on, and they are signed in right away.
-  setSession(res, user.id, user.role);
+  setSession(req, res, user.id, user.role);
   res.json(sanitizeUser(user));
 }));
 

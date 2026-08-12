@@ -6,7 +6,11 @@
   "description": "Real REST + SQLite backend for the TMJ questionnaire app",
   "scripts": {
     "start": "node src/index.js",
-    "dev": "node --watch src/index.js"
+    "dev": "node --watch src/index.js",
+    "smoke": "node scripts/smoke.mjs"
+  },
+  "engines": {
+    "node": ">=22.5.0"
   },
   "dependencies": {
     "cookie-parser": "^1.4.6",
