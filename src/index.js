@@ -396,5 +396,5 @@ app.use((err, _req, res, _next) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`[server] TMJ API listening on http://localhost:${PORT}/api`);
+  console.log(`[server] Dr.Stamatolog API listening on http://localhost:${PORT}/api`);
 });

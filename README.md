@@ -1,4 +1,4 @@
-# TMJ Anketa — Backend
+# Dr.Stamatolog — Backend
 
 Real REST + SQLite backend for the questionnaire app. Replaces the old in-memory
 localStorage mock so accounts and medical records actually persist.
