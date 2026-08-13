@@ -56,3 +56,30 @@ Delete `server/data/` to wipe all data and re-seed on next start.
 
 - `PORT` — API port (default `4000`)
 - `DATA_DIR` — where `app.db` lives (default `server/data`)
+- `CORS_ORIGIN` — comma-separated origins allowed to call the API with a session
+  cookie, e.g. `https://abdurayim.github.io`. **Set this in production.** Unset
+  means "reflect whatever origin asks", which is fine for local development but
+  in production would let any site on the internet make authenticated calls with
+  a logged-in user's session.
+
+## Uploads and body size
+
+A questionnaire carries the patient photo and any x-rays inline as base64, so a
+saved record is a single large JSON body. The API accepts up to **25 MB**
+(`express.json({ limit: '25mb' })`) and the web app downscales every image to
+1600px before encoding, which keeps a typical record well under 1 MB.
+
+If you put a reverse proxy in front of this, raise its body limit to match or
+saving silently fails with a 413 — nginx defaults to **1 MB**, which is smaller
+than a single phone photo:
+
+```nginx
+client_max_body_size 25m;
+```
+
+nginx must also forward the protocol, or the session cookie never gets its
+`Secure` flag and browsers drop it on the cross-site request from the web app:
+
+```nginx
+proxy_set_header X-Forwarded-Proto $scheme;
+```

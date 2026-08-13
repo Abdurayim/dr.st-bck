@@ -379,6 +379,22 @@ app.use('/api', router);
 app.get('/health', (_req, res) => res.json({ ok: true }));
 app.use((_req, res) => res.status(404).json({ message: 'notFound', code: 'not_found' }));
 
+// Body-parser rejections (an oversized questionnaire full of x-ray photos is the
+// realistic one) reached Express's default handler, which replies with an HTML
+// stack trace — it leaks server paths and the client, which only parses JSON,
+// could not tell the user what went wrong. Answer in the same shape as every
+// other error instead.
+app.use((err, _req, res, _next) => {
+  if (err?.type === 'entity.too.large' || err?.status === 413) {
+    return res.status(413).json({ message: 'payloadTooLarge', code: 'payload_too_large' });
+  }
+  if (err?.type === 'entity.parse.failed' || err?.status === 400) {
+    return res.status(400).json({ message: 'invalidBody', code: 'invalid_body' });
+  }
+  console.error(err);
+  res.status(500).json({ message: 'serverError', code: 'server_error' });
+});
+
 app.listen(PORT, () => {
   console.log(`[server] TMJ API listening on http://localhost:${PORT}/api`);
 });
